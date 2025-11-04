@@ -64,13 +64,13 @@ VI. Data Segmentation and Customer Behavior Tracking
 
 <h1 align="center">PER-QUESTION EXPLANATIONS</h1>
 
-Q1. Task: Write a query to find customers with at least one funded savings plan AND one funded investment plan, sorted by total deposits.
+<i> Q1. Task: Write a query to find customers with at least one funded savings plan AND one funded investment plan, sorted by total deposits.
     (High-Value Customers with Multiple Products
-      Scenario: The business wants to identify customers who have both a savings and an investment plan (cross-selling opportunity)).
+      Scenario: The business wants to identify customers who have both a savings and an investment plan (cross-selling opportunity)). </i>
 
   Expalnation - To solve this, I had to understand and breakdown the question.                                                                                                           
                 1. The question requires that I output customers - this can be obtained from any table with owner_id or even the user table.                                            
-                2. It says Atleast one funded savings and one funded investment. This means that I need to get customer sith both funded savings account and investment account. This customer can must have atleast one or more of both accounts. 
+                2. It says Atleast one funded savings and one funded investment. This means that I need to get customer sith both funded savings account and investment account. This  customer can must have atleast one or more of both accounts. 
                 3. Lastly, I am required to Order By total_deposit. In the tables, there is no column as deposit but we have confirmed amount which is inflow amount in the savings table.
                 
 Steps taken to solve it -  
@@ -170,13 +170,102 @@ Finally, I did the Inner Join of the customer_sav_inv and the result of this 3rd
     ON i.owner_id = d.owner_id
     ORDER BY d.total_deposits ASC;
 
-ADDITIONAL INSIGHTS                                                                                                                                                                       
+Insight:                                                                                                                                                                      
 While solving the assessment, I explored the dataset further to uncover patterns and customer behaviors. Here are a few key insights I derived from the analysis:
 1. The customer with the highest total deposits contributed 33,631,711,883.37, while the least contributed 10,000.00.
 2. The top customer based on total_deposit holds 3 savings and 9 investment accounts.
-3. The highest number of savings accounts owned by one person is 312, while highest investment 92.
+3. The highest number of savings accounts owned by one person is 312, while highest investment 92.                                                                                
+
+Image Result of Query:
+<img width="1357" height="611" alt="image" src="https://github.com/user-attachments/assets/9b8acba8-c9b1-4ddc-8efe-ec1b2de7b030" />
+NB: Run SQL code to view all result.
+
+
+
+<i> Q2. Task: Calculate the average number of transactions per customer per month and categorize them:
+		  	"High Frequency" (≥10 transactions/month) | "Medium Frequency" (3-9 transactions/month) | "Low Frequency" (≤2 transactions/month) </i>
+
+Explanation -                                                                                                                                                                          1st step: 	To solve this question, I started by Join the savings table to the user table using INNER JOIN (to get only users who have carried out a transaction) this was so that I can EXTRACT MONTH of transaction for each customer in the transaction_date column of the savings table. Once I obtained the result, I created a CTE to help my query run faster and better.
+
+						-- 1st: Let's Extract month of customer transaction from transaction_date
+										WITH month_extraction AS
+											(
+											SELECT 
+													s.owner_id,
+													MONTH(transaction_date) AS transaction_month
+											FROM savings_savingsaccount AS s
+											INNER JOIN users_customuser AS u
+										    ON s.owner_id = u.id
+										    ),
+ 2nd Step: Once I had the MONTH where EACH individual customers carried out a transaction, I counted the number of transaction carried per month for that unique customer. In the code below, I used both owner_id and transaction_month(month from transaction date) in the GROUP BY. This was done so that I could get the COUNT of transaction for each unique customer using owner_id and also the particular month. {Example of expected result: customer A carried out 5 transaction in may, 10 transactions in june }
+ 
+						-- 2nd:I can now obtain the count of transactions per month by each customer
+						transact_count AS
+						 	(
+						  SELECT 
+									owner_id,
+						            transaction_month,
+						            COUNT(*) AS transaction_per_month
+						    FROM month_extraction
+						    GROUP BY owner_id, transaction_month
+						    ORDER BY owner_id, transaction_month
+							),
+3rd step: After I was able to obtain the number of transactions carried out per month for each individual customer, I went on to get the AVERAGE number of transaction by each customer for months where they carried out a transaction. {From our example in step 2, this 3rd step is to get the average total transaction for each which will be (5+10)/2, where two is the number of months (may and june) customer A carried out a transaction. }
+
+					-- 3rd: I went ahead to get the average transactions per month for each customer
+					average_transact_per_month AS
+						( 
+						 SELECT owner_id,
+								AVG(transaction_per_month) AS avg_transaction_per_month
+						 FROM transact_count
+						 GROUP BY owner_id
+		                ),
+4th step: In this step, I had to categorise the average transaction per customer per month into three different category, namely: High, Medium, and Low. In the code below, I used ROUND function because the condition for grouping was a whole number whereas the values I got after average in step 3 was in decimal. If I didn't, some number will be out of the range. For instance, if I had 9.7, it won't be included because my condition included only numbers within 3 and 9 with the both included excluding 9.01 - 9.99. 
+
+					-- 4th: I used CASE statement to categorize customers into different groups
+					categorize_customer AS 
+						(
+					    SELECT *,
+								CASE
+									-- we need to ROUND the average_transact_per_month to a whole number so it can fit the condition (10, 3-9, 2) and no value is missed
+									WHEN ROUND(avg_transaction_per_month,0) >= 10 THEN 'High Frequency'
+					                WHEN ROUND(avg_transaction_per_month,0) BETWEEN 3 AND 9 THEN 'Medium Frequency'
+					                WHEN ROUND(avg_transaction_per_month,0) <=2 THEN 'Low Frequency'
+					            END AS frequency_category
+						FROM average_transact_per_month
+					    )
+Finally, in other to have only three rows showing the three categories, I did the average of the transaction per category
+
+					- finally,I got the total number of customers for each category and average of the transactions per month per category
+					SELECT 
+							frequency_category,
+							COUNT(*) AS customer_count,
+							ROUND(AVG(avg_transaction_per_month),1) AS avg_transactions_per_month
+					FROM categorize_customer
+					GROUP BY frequency_category
+					ORDER BY avg_transactions_per_month DESC;
+Insight:                                                                                                                                                                                
+1. The number of customer with High Frequency i.e. with transaction average >= 10 were leat with a count of 177 while customer with average transaction <=2 had the highest count with 499.
+2. Top 2 category based on the average transaction per month are High Frequency and Medium Frequency with value 76.2 and 4.5 respectively.
+
+Result:
+<img width="1360" height="615" alt="image" src="https://github.com/user-attachments/assets/eee7227b-aae1-43b4-9d58-b73a814243bd" />
+NB: Run SQL code to view all result.
+
+
+<i> Q3. Task: Find all active accounts (savings or investments) with no transactions in the last 1 year (365 days) </i>                                                                
+
+Explanation: -                                                                                                                                                                    
+This question is my favorite among the four because, back in May when I first attempted this assessment, I interpreted it wrongly. That’s why I’ll take a moment to explain what the question wants us to solve. The question said customer with NO transaction in last 1 year, that means if we consider for instance this day (2025/11/04) as the last transaction date in the table, last 1 year will be 365days from today's date which is 2024/11/04 this means that any transaction date less than this 2024/11/04 is what we will be looking out for. 
+
+
+
+
+
 
 <h1 align="center">CHALLENGES</h1>
 
 1. In task 1, MySQL showed me "Lost connection to Mysql server during query" after running for 30.011sec when I was writing the code line by line without CTE, so I decided to use Common Table Expression (CTE), because it will help me extract the important fields I needed after then I can now use it as my new table. With that, I have less data for MYSQL to run and it can now be faster.                                                                                                                                                                                                                                                                                         
 2. To get customers with atleast one investment and savings in task 1. At first, I only used the Where filter but I realised that my final result had 0 appearing under the columns which isn't what the task asked so I decided to use the HAVING filter with the WHERE filter since in the order of SQL execution WHERE will happen before HAVING. The HAVING condition worked because the WHERE had filtered both columns to having either of them being 1, 0 or both being 1 but both can't be 0. 
+
+3. 
