@@ -356,7 +356,7 @@ This question is my favorite among the four because, back in May when I first at
 			                END AS `type`
 					FROM no_transaction_over_one_year
 					),
-7th step: I realised that we had reoccuring owner_id and account type for each user due to different days so I decided to get the maximumum day for each user and their account type after which I did applied row function to identify duplicates.
+7th step: I realised that we had reoccuring owner_id and account type for each user due to different days so I decided to get the maximumum day for each user and their account type.
 
 				-- 7th: Get the maximum inactivity_days per customer and their account_type
 				max_inactivity_day_percustomer_accounttype AS
@@ -368,21 +368,54 @@ This question is my favorite among the four because, back in May when I first at
 				                customer_transaction_date,
 								 days,
 				                MAX(days) OVER(PARTITION BY  `type`, owner_id ORDER BY days DESC) AS inactivity_days,
-								ROW_NUMBER() OVER(PARTITION BY owner_id, `type` ORDER BY days) AS row_cus -- To get maximum inactivity days per unique customer per account
 						FROM type_of_account
 				        )
-Finally: I removed duplicate to have one users and their maximum 
+8th step: I applied row function and ordered by the inactivity days in Desc this was so as to allow only the maximum values of days for each customer account type to have number 1. Doing this will help me remove any row >1
 
-						-- Finally, I removed duplicates 
-						SELECT 
-								plan_id,
-								owner_id,
-						        `type`, 
-						         customer_transaction_date AS last_transaction_date,
-						         inactivity_days
-						FROM max_inactivity_day_percustomer_accounttype
-						WHERE row_cus = 1
-						ORDER BY inactivity_days;
+				-- 8th: identify duplicates per account type for each unique owner id
+				duplicates AS
+				(
+				 SELECT 
+						plan_id,
+						owner_id,
+						`type`,            
+						customer_transaction_date AS last_transaction_date,
+						inactivity_days,
+						ROW_NUMBER() OVER(PARTITION BY owner_id, `type` ORDER BY inactivity_days DESC) AS row_cus -- to identify the duplicates
+				 FROM max_inactivity_day_percustomer_accounttype
+				)
+Finally: I removed duplicate to have one users and their maximum inactivity days per account type
+
+				-- Finally, I removed duplicates to allow only row with number 1 
+				SELECT 
+						plan_id,
+						owner_id,
+						`type`,            
+						last_transaction_date,
+						inactivity_days
+				FROM duplicates
+				WHERE row_cus = 1 
+				ORDER BY inactivity_days;
+
+				
+Insight :
+1.  There was a total of 59 Inactive accounts. Savings account made up 58% of the inactive account while investment was 42%.
+2.  Savings Account type whose last transaction was in 2018-12-09 had the highest inactivity days which is 2,741 days.
+   
+NB: In SQL file attached, Line 129 contains the code on how insight was obtained. I didn't add to the main as it wasn't part of the task.								                 
+
+Result:
+<img width="1277" height="576" alt="image" src="https://github.com/user-attachments/assets/5aa62202-9c66-42fb-b84c-b3302f0dd162" />
+NB: Run SQL code to view all result.
+
+
+<i> Q4.  Task: For each customer, assuming the profit_per_transaction is 0.1% of the transaction value, calculate: 1. Account tenure (months since signup) 2.Total transactions
+		3. Estimated CLV (Assume: CLV = (total_transactions / tenure) * 12 * avg_profit_per_transaction). Order by estimated CLV from highest to lowest </i>
+
+Explanation - 
+
+
+
 
 
 
