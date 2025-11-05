@@ -256,11 +256,140 @@ NB: Run SQL code to view all result.
 <i> Q3. Task: Find all active accounts (savings or investments) with no transactions in the last 1 year (365 days) </i>                                                                
 
 Explanation: -                                                                                                                                                                    
-This question is my favorite among the four because, back in May when I first attempted this assessment, I interpreted it wrongly. That’s why I’ll take a moment to explain what the question wants us to solve. The question said customer with NO transaction in last 1 year, that means if we consider for instance this day (2025/11/04) as the last transaction date in the table, last 1 year will be 365days from today's date which is 2024/11/04 this means that any transaction date less than this 2024/11/04 is what we will be looking out for. 
+This question is my favorite among the four because, back in May when I first attempted this assessment, I interpreted it wrongly. That’s why I’ll take a moment to explain what the question wants us to solve. The question said customer with NO transaction in last 1 year, that means if we consider for instance this day (2025/11/04) as the last transaction date in the table, last 1 year will be 365days from today's date which is 2024/11/04 this means that any transaction date less than this 2024/11/04 where the confirmed amount is 0 or NULL is what we will be looking out for. Below is the step-wise approach I used to solve this task.
+
+1st step: To find out the last transaction accross the savigs table, I did maximum transaction date in the transaction date column to get 2025-04-18, also, I dated the transaction date back to 1 year ago using DATE_SUB function to get 2024-04-18 which i aliased as Reference_transaction_date.
+
+				-- 1st step: identify the transaction date of customers
+				WITH ref_transaction AS
+						(
+						SELECT 
+								plan_id,
+								owner_id,
+								confirmed_amount,
+								DATE(transaction_date) AS customer_transaction_date,
+								MAX(DATE(transaction_date)) OVER() AS maximum_transaction_date,
+				                DATE_SUB(MAX(DATE(transaction_date)) OVER(), INTERVAL 1 YEAR) AS Reference_transaction_date 
+						FROM savings_savingsaccount
+						),
+2nd step: Once I got those columnns ready in the ref_transaction table, my next step was to get the difference in days between the Reference_transaction_date and customer_transaction_date. The purpose of doing this is to know the number of days between the two days. If the day is less than 365, then it will be within one year transaction however, if it greater than 365 then it out of the 1 year transaction and those are the transaction we want to consider.
+
+			-- 2nd step: getting the day(s) difference between the reference_transaction_date and transaction_date
+			days_of_transaction AS
+					(
+					SELECT 
+							plan_id,
+							owner_id,
+							confirmed_amount,
+							customer_transaction_date,
+							Reference_transaction_date,
+							DATEDIFF(Reference_transaction_date,customer_transaction_date  ) AS days
+					FROM ref_transaction
+					),
+3rd step: I filtered to only work with days greater than 365.
+
+			-- 3rd: getting all transaction over 1 year
+			over_one_year_transaction AS 
+					(
+					SELECT 
+							plan_id,
+							owner_id,
+							confirmed_amount,
+			                customer_transaction_date,
+							days
+					FROM days_of_transaction
+			        WHERE days > 365
+					),
+4th step: In this step, I needed to get those users with an active account. My assumption was that for you to have an active account, you must have either of the account type which is is_regular_savings = 1  or is_a_fund = 1  or both accounts = 1 to be qualified. Hence, I used the filter clause shown below. 
+
+			-- 4th: We can now get all active account. 
+			active_account AS 
+					(
+					SELECT 
+							s.plan_id,
+							s.owner_id,
+							s.confirmed_amount,
+			                s.customer_transaction_date,
+							s.days,
+							p.is_regular_savings,
+							p.is_a_fund
+					FROM over_one_year_transaction AS s
+					INNER JOIN plans_plan AS p
+					ON s.plan_id = p.id
+					WHERE p.is_regular_savings = 1 	-- this was to get active savings
+						  OR p.is_a_fund = 1 			-- this was to get active investment
+					ORDER BY s.days ASC
+					),
+5th step: Now that I have only user with active accounts, my next step was to get users with no transactions. In this, No transaction for me means where confirmed amount is 0 or null. So, I used the WHERE clause to filter the result
+
+			-- 5th: obtain all accounts with no transactions, i.e, confirmed amount = inflow amount is 0 or null
+			no_transaction_over_one_year AS
+					(
+					SELECT 
+							plan_id,
+							owner_id,
+							confirmed_amount,
+			                customer_transaction_date,
+							days,
+							is_regular_savings,
+							is_a_fund
+					FROM active_account
+			        WHERE confirmed_amount IN (0, NULL)
+					),
+6th step: In this step, I categorised the account type to savings and investment using CASE statement
+
+			-- 6th: categorise account type
+			type_of_account AS
+					(
+					SELECT 
+							plan_id,
+							owner_id,
+							confirmed_amount,
+			                customer_transaction_date,
+							days,
+							is_regular_savings,
+							is_a_fund,
+			                CASE
+								WHEN is_regular_savings = 1 AND is_a_fund = 0 THEN 'Savings'
+								WHEN is_regular_savings = 0 AND is_a_fund = 1 THEN  'Investment'
+			                    ELSE 'Not Specified'
+			                END AS `type`
+					FROM no_transaction_over_one_year
+					),
+7th step: I realised that we had reoccuring owner_id and account type for each user due to different days so I decided to get the maximumum day for each user and their account type after which I did applied row function to identify duplicates.
+
+				-- 7th: Get the maximum inactivity_days per customer and their account_type
+				max_inactivity_day_percustomer_accounttype AS
+						(
+				        SELECT 
+								plan_id,
+								owner_id,
+				                `type`,            
+				                customer_transaction_date,
+								 days,
+				                MAX(days) OVER(PARTITION BY  `type`, owner_id ORDER BY days DESC) AS inactivity_days,
+								ROW_NUMBER() OVER(PARTITION BY owner_id, `type` ORDER BY days) AS row_cus -- To get maximum inactivity days per unique customer per account
+						FROM type_of_account
+				        )
+Finally: I removed duplicate to have one users and their maximum 
+
+						-- Finally, I removed duplicates 
+						SELECT 
+								plan_id,
+								owner_id,
+						        `type`, 
+						         customer_transaction_date AS last_transaction_date,
+						         inactivity_days
+						FROM max_inactivity_day_percustomer_accounttype
+						WHERE row_cus = 1
+						ORDER BY inactivity_days;
 
 
 
 
+
+
+		
 
 
 <h1 align="center">CHALLENGES</h1>
