@@ -258,23 +258,46 @@ NB: Run SQL code to view all result.
 Explanation: -                                                                                                                                                                    
 This question is my favorite among the four because, back in May when I first attempted this assessment, I interpreted it wrongly. That’s why I’ll take a moment to explain what the question wants us to solve. The question said customer with NO transaction in last 1 year, that means if we consider for instance this day (2025/11/04) as the last transaction date in the table, last 1 year will be 365days from today's date which is 2024/11/04 this means that any transaction date less than this 2024/11/04 where the confirmed amount is 0 or NULL is what we will be looking out for. Below is the step-wise approach I used to solve this task.
 
-1st step: To find out the last transaction accross the savigs table, I did maximum transaction date in the transaction date column to get 2025-04-18, also, I dated the transaction date back to 1 year ago using DATE_SUB function to get 2024-04-18 which i aliased as Reference_transaction_date.
+1st step: I identified duplicates and remove them from the savings table
 
-				-- 1st step: identify the transaction date of customers
-				WITH ref_transaction AS
+					-- 1st step: Identify and Remove duplicates from the savings table
+					WITH duplicate_savings AS
+					(
+					SELECT 
+							plan_id,
+							owner_id,
+					       DATE_FORMAT(transaction_date, '%Y-%m-%d %H:%i') AS tran_date, -- To truncate our datetime to minute
+					        confirmed_amount,
+					        ROW_NUMBER() OVER(PARTITION BY owner_id, DATE_FORMAT(transaction_date, '%Y-%m-%d %H:%i'),confirmed_amount ORDER BY confirmed_amount ASC) AS row_cus
+					FROM savings_savingsaccount
+					),
+					clean_savings_table AS
+					(
+					SELECT 
+							plan_id,
+							owner_id,
+					        tran_date, -- This is now our new transaction datetime
+					        confirmed_amount
+					FROM duplicate_savings
+					WHERE row_cus = 1
+					),
+2nd step: To find out the last transaction accross the newly cleaned savigs table, I did maximum transaction date in the transaction date column to get 2025-04-18, also, I dated the transaction date back to 1 year ago using DATE_SUB function to get 2024-04-18 which i aliased as Reference_transaction_date.
+
+				-- 2nd step: identify the transaction date of customers
+					ref_transaction AS
 						(
 						SELECT 
 								plan_id,
 								owner_id,
 								confirmed_amount,
-								DATE(transaction_date) AS customer_transaction_date,
-								MAX(DATE(transaction_date)) OVER() AS maximum_transaction_date,
-				                DATE_SUB(MAX(DATE(transaction_date)) OVER(), INTERVAL 1 YEAR) AS Reference_transaction_date 
-						FROM savings_savingsaccount
+								DATE(tran_date) AS customer_transaction_date,
+								MAX(DATE(tran_date)) OVER() AS maximum_transaction_date, -- To get the latest date transaction_date in the table
+				                DATE_SUB(MAX(DATE(tran_date)) OVER(), INTERVAL 1 YEAR) AS Reference_transaction_date 
+						FROM clean_savings_table 
 						),
-2nd step: Once I got those columnns ready in the ref_transaction table, my next step was to get the difference in days between the Reference_transaction_date and customer_transaction_date. The purpose of doing this is to know the number of days between the two days. If the day is less than 365, then it will be within one year transaction however, if it greater than 365 then it out of the 1 year transaction and those are the transaction we want to consider.
+3rd step: Once I got those columnns ready in the ref_transaction table, my next step was to get the difference in days between the Reference_transaction_date and customer_transaction_date. The purpose of doing this is to know the number of days between the two days. If the day is less than 365, then it will be within one year transaction however, if it greater than 365 then it out of the 1 year transaction and those are the transaction we want to consider.
 
-			-- 2nd step: getting the day(s) difference between the reference_transaction_date and transaction_date
+			-- 3rd step: getting the day(s) difference between the reference_transaction_date and transaction_date
 			days_of_transaction AS
 					(
 					SELECT 
@@ -283,12 +306,12 @@ This question is my favorite among the four because, back in May when I first at
 							confirmed_amount,
 							customer_transaction_date,
 							Reference_transaction_date,
-							DATEDIFF(Reference_transaction_date,customer_transaction_date  ) AS days
+							DATEDIFF(Reference_transaction_date,customer_transaction_date  ) AS days 
 					FROM ref_transaction
 					),
-3rd step: I filtered to only work with days greater than 365.
+4th step: I filtered to only work with days greater than 365.
 
-			-- 3rd: getting all transaction over 1 year
+			-- 4th: getting all transaction over 1 year
 			over_one_year_transaction AS 
 					(
 					SELECT 
@@ -300,9 +323,9 @@ This question is my favorite among the four because, back in May when I first at
 					FROM days_of_transaction
 			        WHERE days > 365
 					),
-4th step: In this step, I needed to get those users with an active account. My assumption was that for you to have an active account, you must have either of the account type which is is_regular_savings = 1  or is_a_fund = 1  or both accounts = 1 to be qualified. Hence, I used the filter clause shown below. 
+5th step: In this step, I needed to get those users with an active account. My assumption was that for you to have an active account, you must have either of the account type which is is_regular_savings = 1  or is_a_fund = 1  or both accounts = 1 to be qualified. Hence, I used the filter clause shown below. 
 
-			-- 4th: We can now get all active account. 
+			-- 5th: We can now get all active account. 
 			active_account AS 
 					(
 					SELECT 
@@ -320,9 +343,9 @@ This question is my favorite among the four because, back in May when I first at
 						  OR p.is_a_fund = 1 			-- this was to get active investment
 					ORDER BY s.days ASC
 					),
-5th step: Now that I have only user with active accounts, my next step was to get users with no transactions. In this, No transaction for me means where confirmed amount is 0 or null. So, I used the WHERE clause to filter the result
+6th step: Now that I have only user with active accounts, my next step was to get users with no transactions. In this, No transaction for me means where confirmed amount is 0 or null. So, I used the WHERE clause to filter the result
 
-			-- 5th: obtain all accounts with no transactions, i.e, confirmed amount = inflow amount is 0 or null
+			-- 6th: obtain all accounts with no transactions, i.e, confirmed amount = inflow amount is 0 or null
 			no_transaction_over_one_year AS
 					(
 					SELECT 
@@ -336,9 +359,9 @@ This question is my favorite among the four because, back in May when I first at
 					FROM active_account
 			        WHERE confirmed_amount IN (0, NULL)
 					),
-6th step: In this step, I categorised the account type to savings and investment using CASE statement
+7th step: In this step, I categorised the account type to savings and investment using CASE statement
 
-			-- 6th: categorise account type
+			-- 7th: categorise account type
 			type_of_account AS
 					(
 					SELECT 
@@ -356,9 +379,9 @@ This question is my favorite among the four because, back in May when I first at
 			                END AS `type`
 					FROM no_transaction_over_one_year
 					),
-7th step: I realised that we had reoccuring owner_id and account type for each user due to different days so I decided to get the maximumum day for each user and their account type.
+8th step: I realised that we had reoccuring owner_id and account type for each user due to different days so I decided to get the maximumum day for each user and their account type.
 
-				-- 7th: Get the maximum inactivity_days per customer and their account_type
+				-- 8th: Get the maximum inactivity_days per customer and their account_type
 				max_inactivity_day_percustomer_accounttype AS
 						(
 				        SELECT 
@@ -370,9 +393,9 @@ This question is my favorite among the four because, back in May when I first at
 				                MAX(days) OVER(PARTITION BY  `type`, owner_id ORDER BY days DESC) AS inactivity_days,
 						FROM type_of_account
 				        )
-8th step: I applied row function and ordered by the inactivity days in Desc this was so as to allow only the maximum values of days for each customer account type to have number 1. Doing this will help me remove any row >1
+9th step: I applied row function and ordered by the inactivity days in Desc this was so as to allow only the maximum values of days for each customer account type to have number 1. Doing this will help me remove any row >1
 
-				-- 8th: identify duplicates per account type for each unique owner id
+				-- 9th: identify duplicates per account type for each unique owner id
 				duplicates AS
 				(
 				 SELECT 
@@ -410,7 +433,7 @@ NB: Run SQL code to view all result.
 
 
 <i> Q4.  Task: For each customer, assuming the profit_per_transaction is 0.1% of the transaction value, calculate: 1. Account tenure (months since signup) 2.Total transactions
-		3. Estimated CLV (Assume: CLV = (total_transactions / tenure) * 12 * avg_profit_per_transaction). Order by estimated CLV from highest to lowest </i>
+			3. Estimated CLV (Assume: CLV = (total_transactions / tenure) * 12 * avg_profit_per_transaction). Order by estimated CLV from highest to lowest </i>
 
 Explanation - To solve this, I had to clean the the savings data table first as there were multiple duplicates in the table. My assumption was that nobody can transact same amount in the same seconds. I assumed that at same minute, same transaction amount can be made but not at the same seconds. Hence, I wrote the code below to remove duplicates.
 
@@ -519,12 +542,14 @@ Finally, I did the CLV calculation
 		        `name`,
 		         tenure_months,
 		        total_transactions,
-				ROUND(((total_transactions / tenure_months) * 12 * avg_profit_per_transaction),2) AS estimated_clv
+				CAST(ROUND(((total_transactions / tenure_months) * 12 * avg_profit_per_transaction),2) AS DECIMAL(10,2)) AS estimated_clv -- To make the clv uniform as 2 decimal place
+        		-- MAX(LENGTH(ROUND(((total_transactions / tenure_months) * 12 * avg_profit_per_transaction),2))) OVER() -- to know highest number of character 
 		 FROM tenure_in_month
 		 ORDER BY estimated_clv DESC ;
 Insight:																																												
 The customer with the highest tenure in month, 96, is Opeoluwa Popoola and his/her estimated CLV is 2,099,711.13.																		
 Results:
+<img width="1354" height="582" alt="image" src="https://github.com/user-attachments/assets/c527252c-e4ae-4be0-89e8-f150ea6029b2" />
 
 
 		
