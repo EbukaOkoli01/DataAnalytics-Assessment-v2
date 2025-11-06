@@ -412,14 +412,119 @@ NB: Run SQL code to view all result.
 <i> Q4.  Task: For each customer, assuming the profit_per_transaction is 0.1% of the transaction value, calculate: 1. Account tenure (months since signup) 2.Total transactions
 		3. Estimated CLV (Assume: CLV = (total_transactions / tenure) * 12 * avg_profit_per_transaction). Order by estimated CLV from highest to lowest </i>
 
-Explanation - 
+Explanation - To solve this, I had to clean the the savings data table first as there were multiple duplicates in the table. My assumption was that nobody can transact same amount in the same seconds. I assumed that at same minute, same transaction amount can be made but not at the same seconds. Hence, I wrote the code below to remove duplicates.
 
 
+		-- 1st: let remove duplicate from savings table
+		WITH duplicate_savings AS
+		(
+		SELECT 
+				owner_id,
+		       DATE_FORMAT(transaction_date, '%Y-%m-%d %H:%i') AS tran_date, -- To truncate our date to minute
+		        confirmed_amount,
+		        ROW_NUMBER() OVER(PARTITION BY owner_id, DATE_FORMAT(transaction_date, '%Y-%m-%d %H:%i'),confirmed_amount ORDER BY confirmed_amount ASC) AS row_cus
+		FROM savings_savingsaccount
+		),
+		clean_savings_table AS
+		(
+		SELECT 
+				owner_id,
+		        DATE(tran_date) as `date`, -- This is now our new transaction datetime
+		        confirmed_amount
+		FROM duplicate_savings
+		WHERE row_cus = 1
+		),
+Now that the table is clear of duplicates, the next thing I did was to begin solving the question. From how the result of how our answer should look like, I will be needing 
+- customer_id : I assumed this to be the owner_id
+-  name : I will join the first_name and last_name
+- tenure_months : I assumed that tenure month is the difference in month between the first transaction date and last transaction date. first transaction date should be signup date 
+- total_transactions: The count of the transaction per customer
+- estimated_clv: A formula was given to us - Assume: CLV = (total_transactions / tenure) * 12 * avg_profit_per_transaction).															
+																																														
+To ensure that the name of customers are those who have carried out a transaction, I had to inner join the the cleaned_savings_table to the user table
 
+		-- 2nd: to get the names of customers who have carried out a transaction
+		join_table_user_savings AS
+		(
+		SELECT 
+			u.id AS customer_id,
+		    CONCAT(u.first_name, ' ', u.last_name) AS full_name,
+		    s.`date`,
+		    s.confirmed_amount
+		FROM users_customuser AS u
+		INNER JOIN clean_savings_table AS s
+		ON u.id = s.owner_id
+		),
+Once I got this, the next was to filter for account who have performed a transaction and my assumption was that inflow amount (confirmed amount) can not be 0 or null. 
 
+		-- get account that have performed transaction. I assume that transaction for profit merit will be confirmed amount >0 AND not null
+		transaction_account AS
+		(
+		SELECT 
+			customer_id,
+			full_name,
+		    `date`,
+		    confirmed_amount
+		FROM join_table_user_savings
+		WHERE confirmed_amount IS NOT NULL 
+			   AND confirmed_amount != 0
+		),
+From the result of the above code, the next was to find the profit for each customer inflow amount (confirmed_amount). Before solving this, I did DISTINCT of the confirmed amount and realised that we had a negatiive amount, although it was one -400000, so I assumed it was withdrawal which does not meet the profit criteria hence, I made it 0 in the CASE statement. 
 
+		-- get the profit for each confirmed amonut.
+		transaction_profit AS
+		(
+		SELECT 
+				customer_id,
+				full_name,
+		    	`date`,
+		    	CASE
+					WHEN confirmed_amount > 0 THEN confirmed_amount * 0.001
+		       		ELSE 0 				-- This is for the negative -40000 in the table. I assumed it to be withdrawal
+		   		END AS profit_per_transaction
+		FROM transaction_account
+		),
+After obtaining the profit for each customer amount, I did a aggregation on each columnn to get each individual details. For each customer, I had to get their name using the Max function. Count(*) expression counted the number of transaction for each unique customer since their was a group by, Min(date) was the signup date, AVG(profit_per_transaction) got the average of the total transaction for each customer.
 
+		-- get signup date which is assumed to be first transaction date, lasttransaction date, no. of transaction, average profit per transaction
+		individual_details AS
+		(
+		SELECT 
+			customer_id,
+			MAX(full_name) AS `name`,
+		    COUNT(*) AS total_transactions,
+		    MIN(`date`) AS signup_date,
+		    MAX(`date`) AS last_transaction_date,
+		    AVG(profit_per_transaction) AS avg_profit_per_transaction
+		FROM transaction_profit 
+		GROUP BY customer_id
+		),
+Now that the level of details has been compressed to the smallest and we know each individual details, I had to get the tenure in month which is the difference between signup date and last_tansaction date
 
+		tenure_in_month AS
+		(
+		SELECT 
+			customer_id,
+		    `name`,
+			TIMESTAMPDIFF(MONTH, signup_date, last_transaction_date) AS tenure_months,
+		    total_transactions,
+		    avg_profit_per_transaction
+		FROM individual_details
+		)
+Finally, I did the CLV calculation 
+
+		-- finally
+		  SELECT 
+				customer_id,
+		        `name`,
+		         tenure_months,
+		        total_transactions,
+				ROUND(((total_transactions / tenure_months) * 12 * avg_profit_per_transaction),2) AS estimated_clv
+		 FROM tenure_in_month
+		 ORDER BY estimated_clv DESC ;
+Insight:																																												
+The customer with the highest tenure in month, 96, is Opeoluwa Popoola and his/her estimated CLV is 2,099,711.13.																		
+Results:
 
 
 		
@@ -430,4 +535,4 @@ Explanation -
 1. In task 1, MySQL showed me "Lost connection to Mysql server during query" after running for 30.011sec when I was writing the code line by line without CTE, so I decided to use Common Table Expression (CTE), because it will help me extract the important fields I needed after then I can now use it as my new table. With that, I have less data for MYSQL to run and it can now be faster.                                                                                                                                                                                                                                                                                         
 2. To get customers with atleast one investment and savings in task 1. At first, I only used the Where filter but I realised that my final result had 0 appearing under the columns which isn't what the task asked so I decided to use the HAVING filter with the WHERE filter since in the order of SQL execution WHERE will happen before HAVING. The HAVING condition worked because the WHERE had filtered both columns to having either of them being 1, 0 or both being 1 but both can't be 0. 
 
-3. 
+3. In task 2, I realised that majority of my Values didn't fit into the condition of my case statement because tney were decimal and my condition values were whole number so I had to round up to nearest whole number.
