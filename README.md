@@ -547,10 +547,10 @@ Finally, I did the CLV calculation
 		 FROM tenure_in_month
 		 ORDER BY estimated_clv DESC ;
 Insight:																																												
-The customer with the highest tenure in month, 96, is Opeoluwa Popoola and his/her estimated CLV is 2,099,711.13.																		
-Results:
+The customer with the highest tenure in month, 96, is Opeoluwa Popoola and his/her estimated CLV is 2,099,711.13.                                                                        
+Result:
 <img width="1354" height="582" alt="image" src="https://github.com/user-attachments/assets/c527252c-e4ae-4be0-89e8-f150ea6029b2" />
-
+NB: Run SQL code to view all result.
 
 		
 
