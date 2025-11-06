@@ -2,20 +2,41 @@ USE adashi_staging;
 
 /* Task: Find all active accounts (savings or investments) with no transactions in the last 1 year (365 days) . */
 
--- 1st step: identify the transaction date of customers
+-- 1st step: Identify and Remove duplicates from the savings table
 
-WITH ref_transaction AS
+WITH duplicate_savings AS
+(
+SELECT 
+		plan_id,
+		owner_id,
+       DATE_FORMAT(transaction_date, '%Y-%m-%d %H:%i') AS tran_date, -- To truncate our datetime to minute
+        confirmed_amount,
+        ROW_NUMBER() OVER(PARTITION BY owner_id, DATE_FORMAT(transaction_date, '%Y-%m-%d %H:%i'),confirmed_amount ORDER BY confirmed_amount ASC) AS row_cus
+FROM savings_savingsaccount
+),
+clean_savings_table AS
+(
+SELECT 
+		plan_id,
+		owner_id,
+        tran_date, -- This is now our new transaction datetime
+        confirmed_amount
+FROM duplicate_savings
+WHERE row_cus = 1
+),
+-- 2nd step: identify the transaction date of customers
+ref_transaction AS
 		(
 		SELECT 
 				plan_id,
 				owner_id,
 				confirmed_amount,
-				DATE(transaction_date) AS customer_transaction_date,
-				MAX(DATE(transaction_date)) OVER() AS maximum_transaction_date, -- To get the up to date transaction_date in the table
-                DATE_SUB(MAX(DATE(transaction_date)) OVER(), INTERVAL 1 YEAR) AS Reference_transaction_date 
-		FROM savings_savingsaccount
+				DATE(tran_date) AS customer_transaction_date,
+				MAX(DATE(tran_date)) OVER() AS maximum_transaction_date, -- To get the latest date transaction_date in the table
+                DATE_SUB(MAX(DATE(tran_date)) OVER(), INTERVAL 1 YEAR) AS Reference_transaction_date 
+		FROM clean_savings_table 
 		),
--- 2nd step: getting the day(s) difference between the reference_transaction_date and transaction_date
+-- 3rd step: getting the day(s) difference between the reference_transaction_date and transaction_date
 days_of_transaction AS
 		(
 		SELECT 
@@ -27,7 +48,7 @@ days_of_transaction AS
 				DATEDIFF(Reference_transaction_date,customer_transaction_date  ) AS days
 		FROM ref_transaction
 		),
--- 3rd: getting all transaction over 1 year
+-- 4th: getting all transaction over 1 year
 over_one_year_transaction AS 
 		(
 		SELECT 
@@ -39,7 +60,7 @@ over_one_year_transaction AS
 		FROM days_of_transaction
         WHERE days > 365
 		),
--- 4th: We can now get all active account. 
+-- 5th: We can now get all active account. 
 active_account AS 
 		(
 		SELECT 
@@ -57,7 +78,7 @@ active_account AS
 			  OR p.is_a_fund = 1 		-- this was to get active investment account
 		ORDER BY s.days ASC
 		),
--- 5th: obtain all accounts with no transactions, i.e, confirmed amount = inflow amount is 0 or null
+-- 6th: obtain all accounts with no transactions, i.e, confirmed amount = inflow amount is 0 or null
 no_transaction_over_one_year AS
 		(
 		SELECT 
@@ -71,7 +92,7 @@ no_transaction_over_one_year AS
 		FROM active_account
         WHERE confirmed_amount IN (0, NULL)
 		),
--- 6th: categorise account type
+-- 7th: categorise account type
 type_of_account AS
 		(
 		SELECT 
@@ -89,7 +110,7 @@ type_of_account AS
                 END AS `type`
 		FROM no_transaction_over_one_year
 		),
--- 7th: Get the maximum inactivity_days per customer and their account_type
+-- 8th: Get the maximum inactivity_days per customer and their account_type
 max_inactivity_day_percustomer_accounttype AS
 		(
         SELECT 
@@ -101,7 +122,7 @@ max_inactivity_day_percustomer_accounttype AS
 			MAX(days) OVER(PARTITION BY  `type`, owner_id ORDER BY days DESC) AS inactivity_days
 		FROM type_of_account
         ),
--- 8th: identify duplicates per account type for each unique owner id
+-- 9th: identify duplicates per account type for each unique owner id
 duplicates AS
 (
  SELECT 
@@ -122,7 +143,7 @@ SELECT
 		inactivity_days
 FROM duplicates
 WHERE row_cus =1 
-ORDER BY inactivity_days;
+ORDER BY inactivity_days ;
 
 
 /*
